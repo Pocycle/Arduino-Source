@@ -11,7 +11,7 @@
 
 #include "Programs/Farming/PokemonLGPE_DailyItemFarmer.h"
 #include "Programs/ShinyHunting/PokemonLGPE_AlolanTrade.h"
-#include "Programs/ShinyHunting/PokemonLGPE_FossilRevival.h"
+// #include "Programs/ShinyHunting/PokemonLGPE_FossilRevival.h"
 #include "Programs/ShinyHunting/PokemonLGPE_GiftReset.h"
 #include "Programs/ShinyHunting/PokemonLGPE_LegendaryReset.h"
 
@@ -36,7 +36,7 @@ std::vector<PanelEntry> PanelListFactory::make_panels() const{
 
     ret.emplace_back("---- Shiny Hunting ----");
     ret.emplace_back(make_single_switch_program<AlolanTrade_Descriptor, AlolanTrade>());
-    ret.emplace_back(make_single_switch_program<FossilRevival_Descriptor, FossilRevival>());
+    // ret.emplace_back(make_single_switch_program<FossilRevival_Descriptor, FossilRevival>());
     ret.emplace_back(make_single_switch_program<GiftReset_Descriptor, GiftReset>());
     ret.emplace_back(make_single_switch_program<LegendaryReset_Descriptor, LegendaryReset>());
 

@@ -1523,8 +1523,8 @@ file(GLOB MAIN_SOURCES
     Source/PokemonLGPE/Programs/PokemonLGPE_GameEntry.h
     Source/PokemonLGPE/Programs/ShinyHunting/PokemonLGPE_AlolanTrade.cpp
     Source/PokemonLGPE/Programs/ShinyHunting/PokemonLGPE_AlolanTrade.h
-    Source/PokemonLGPE/Programs/ShinyHunting/PokemonLGPE_FossilRevival.cpp
-    Source/PokemonLGPE/Programs/ShinyHunting/PokemonLGPE_FossilRevival.h
+    # Source/PokemonLGPE/Programs/ShinyHunting/PokemonLGPE_FossilRevival.cpp
+    # Source/PokemonLGPE/Programs/ShinyHunting/PokemonLGPE_FossilRevival.h
     Source/PokemonLGPE/Programs/ShinyHunting/PokemonLGPE_GiftReset.cpp
     Source/PokemonLGPE/Programs/ShinyHunting/PokemonLGPE_GiftReset.h
     Source/PokemonLGPE/Programs/ShinyHunting/PokemonLGPE_LegendaryReset.cpp
