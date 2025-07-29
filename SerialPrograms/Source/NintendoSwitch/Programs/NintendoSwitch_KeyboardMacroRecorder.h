@@ -62,8 +62,8 @@ private:
 private:
     BooleanCheckBoxOption RECORDING_ENABLED;
     StringOption OUTPUT_FILENAME;
-    MicrosecondsOption DEFAULT_HOLD_TIME;
-    MicrosecondsOption DEFAULT_RELEASE_TIME;
+    MillisecondsOption DEFAULT_HOLD_TIME;
+    MillisecondsOption DEFAULT_RELEASE_TIME;
     
     std::vector<RecordedEvent> m_recorded_events;
     std::map<Qt::Key, WallClock> m_pressed_keys;

@@ -45,12 +45,14 @@ KeyboardMacroRecorder::KeyboardMacroRecorder()
     , DEFAULT_HOLD_TIME(
         "<b>Default Hold Time:</b><br>Default time to hold buttons when recording.",
         LockMode::UNLOCK_WHILE_RUNNING,
-        "100000"
+        0ms, Milliseconds::max(),
+        "100 ms"
     )
     , DEFAULT_RELEASE_TIME(
         "<b>Default Release Time:</b><br>Default time between button presses.",
         LockMode::UNLOCK_WHILE_RUNNING,
-        "50000"
+        0ms, Milliseconds::max(),
+        "50 ms"
     )
     , m_is_recording(false)
 {
@@ -117,14 +119,21 @@ void KeyboardMacroRecorder::program(SingleSwitchProgramEnvironment& env, ProCont
     // Create a simple demo macro since we can't easily connect to the keyboard input system
     env.console.log("Creating a demo macro with sample button presses...");
     
+    // Debug: Show the time values
+    auto hold_time_ms = DEFAULT_HOLD_TIME.get();
+    auto release_time_ms = DEFAULT_RELEASE_TIME.get();
+    
+    env.console.log("Hold time: " + std::to_string(hold_time_ms.count()) + " ms");
+    env.console.log("Release time: " + std::to_string(release_time_ms.count()) + " ms");
+    
     // Add some sample events to demonstrate the format
     RecordedEvent event1;
     event1.timestamp = current_time();
     event1.key = Qt::Key_Enter;
     event1.is_press = true;
     event1.action = TurboMacroAction::A;
-    event1.hold_time = std::chrono::duration_cast<Milliseconds>(DEFAULT_HOLD_TIME.get());
-    event1.release_time = std::chrono::duration_cast<Milliseconds>(DEFAULT_RELEASE_TIME.get());
+    event1.hold_time = hold_time_ms;
+    event1.release_time = release_time_ms;
     get_joystick_values(Qt::Key_Enter, event1.x_axis, event1.y_axis);
     m_recorded_events.push_back(event1);
     
@@ -134,8 +143,8 @@ void KeyboardMacroRecorder::program(SingleSwitchProgramEnvironment& env, ProCont
     event1_release.key = Qt::Key_Enter;
     event1_release.is_press = false;
     event1_release.action = TurboMacroAction::A;
-    event1_release.hold_time = std::chrono::duration_cast<Milliseconds>(DEFAULT_HOLD_TIME.get());
-    event1_release.release_time = std::chrono::duration_cast<Milliseconds>(DEFAULT_RELEASE_TIME.get());
+    event1_release.hold_time = hold_time_ms;
+    event1_release.release_time = release_time_ms;
     get_joystick_values(Qt::Key_Enter, event1_release.x_axis, event1_release.y_axis);
     m_recorded_events.push_back(event1_release);
     
@@ -145,8 +154,8 @@ void KeyboardMacroRecorder::program(SingleSwitchProgramEnvironment& env, ProCont
     event2.key = Qt::Key_W;
     event2.is_press = true;
     event2.action = TurboMacroAction::LEFT_JOYSTICK;
-    event2.hold_time = std::chrono::duration_cast<Milliseconds>(DEFAULT_HOLD_TIME.get());
-    event2.release_time = std::chrono::duration_cast<Milliseconds>(DEFAULT_RELEASE_TIME.get());
+    event2.hold_time = hold_time_ms;
+    event2.release_time = release_time_ms;
     get_joystick_values(Qt::Key_W, event2.x_axis, event2.y_axis);
     m_recorded_events.push_back(event2);
     
@@ -156,8 +165,8 @@ void KeyboardMacroRecorder::program(SingleSwitchProgramEnvironment& env, ProCont
     event2_release.key = Qt::Key_W;
     event2_release.is_press = false;
     event2_release.action = TurboMacroAction::LEFT_JOYSTICK;
-    event2_release.hold_time = std::chrono::duration_cast<Milliseconds>(DEFAULT_HOLD_TIME.get());
-    event2_release.release_time = std::chrono::duration_cast<Milliseconds>(DEFAULT_RELEASE_TIME.get());
+    event2_release.hold_time = hold_time_ms;
+    event2_release.release_time = release_time_ms;
     get_joystick_values(Qt::Key_W, event2_release.x_axis, event2_release.y_axis);
     m_recorded_events.push_back(event2_release);
     
