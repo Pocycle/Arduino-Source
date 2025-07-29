@@ -15,6 +15,7 @@
 #include "Programs/NintendoSwitch_TurboA.h"
 #include "Programs/NintendoSwitch_TurboButton.h"
 #include "Programs/NintendoSwitch_TurboMacro.h"
+#include "Programs/NintendoSwitch_KeyboardMacroRecorder.h"
 #include "Programs/NintendoSwitch_PushJoySticks.h"
 #include "Programs/NintendoSwitch_PreventSleep.h"
 #include "Programs/NintendoSwitch_FriendCodeAdder.h"
@@ -57,6 +58,7 @@ std::vector<PanelEntry> PanelListFactory::make_panels() const{
     ret.emplace_back(make_single_switch_program<TurboA_Descriptor, TurboA>());
     ret.emplace_back(make_single_switch_program<TurboButton_Descriptor, TurboButton>());
     ret.emplace_back(make_single_switch_program<TurboMacro_Descriptor, TurboMacro>());
+    ret.emplace_back(make_single_switch_program<KeyboardMacroRecorder_Descriptor, KeyboardMacroRecorder>());
     ret.emplace_back(make_single_switch_program<PushJoySticks_Descriptor, PushJoySticks>());
     ret.emplace_back(make_single_switch_program<PreventSleep_Descriptor, PreventSleep>());
     ret.emplace_back(make_single_switch_program<FriendCodeAdder_Descriptor, FriendCodeAdder>());
