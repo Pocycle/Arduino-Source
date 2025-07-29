@@ -9,7 +9,9 @@
 #include <iostream>
 #include <filesystem>
 #include "Common/Cpp/Time.h"
+#include "Common/Cpp/Exceptions.h"
 #include "NintendoSwitch/Options/TurboMacroTable.h"
+#include "NintendoSwitch/NintendoSwitch_Settings.h"
 #include "NintendoSwitch_KeyboardMacroRecorder.h"
 
 namespace PokemonAutomation{
@@ -24,7 +26,7 @@ KeyboardMacroRecorder_Descriptor::KeyboardMacroRecorder_Descriptor()
         "ComputerControl/blob/master/Wiki/Programs/NintendoSwitch/KeyboardMacroRecorder.md",
         "Record keyboard input and convert to TurboMacro JSON format",
         FeedbackType::NONE,
-        AllowCommandsWhenRunning::DISABLE_COMMANDS,
+        AllowCommandsWhenRunning::ENABLE_COMMANDS,
         {ControllerFeature::NintendoSwitch_ProController}
     )
 {}
@@ -64,6 +66,14 @@ KeyboardMacroRecorder::KeyboardMacroRecorder()
     CURRENTLY_RECORDING = false;
     // Initialize keyboard mapping based on default Pro Controller mappings
     initialize_keyboard_mapping();
+}
+
+KeyboardMacroRecorder::~KeyboardMacroRecorder(){
+    // Ensure recording is stopped and saved when the program is destroyed
+    if (m_is_recording){
+        stop_recording();
+        save_recording();
+    }
 }
 
 void KeyboardMacroRecorder::initialize_keyboard_mapping(){
@@ -116,29 +126,56 @@ void KeyboardMacroRecorder::program(SingleSwitchProgramEnvironment& env, ProCont
     if (m_first_run){
         env.console.log("Keyboard Macro Recorder started.");
         env.console.log("This program records keyboard input and converts it to TurboMacro JSON format.");
-        env.console.log("Click 'Start Program' to toggle recording on/off.");
+        env.console.log("Recording will start automatically and continue until you click 'Stop Program'.");
+        env.console.log("The macro will be saved when the program stops.");
         m_first_run = false;
     }
     
-    // Toggle the recording state
-    CURRENTLY_RECORDING = !CURRENTLY_RECORDING;
+    // Start recording immediately
+    env.console.log("Starting recording...");
+    start_recording();
+    CURRENTLY_RECORDING = true;
     
-    // Check if we're starting recording
-    if (CURRENTLY_RECORDING){
-        env.console.log("Starting recording...");
-        start_recording();
-        env.console.log("Recording started. Press keys to record your macro.");
-        env.console.log("Click 'Start Program' again to stop recording and save.");
-    }
-    // Check if we're stopping recording
-    else{
-        env.console.log("Stopping recording...");
+    // Register with the keyboard input system
+    ProController& controller = static_cast<ProController&>(context.controller());
+    controller.add_keyboard_callback(static_cast<KeyboardEventCallback*>(this));
+    
+    env.console.log("Recording started. Press keys to record your macro.");
+    env.console.log("Click 'Stop Program' to stop recording and save the macro.");
+    
+    // Run continuously until Stop Program is called
+    try {
+        while (true){
+            // Check if the program should stop
+            context.throw_if_cancelled();
+            
+            // Small delay to prevent busy waiting
+            context.wait_for(std::chrono::milliseconds(100));
+        }
+    } catch (const ProgramCancelledException&) {
+        // Program was stopped by user - save the recording
+        env.console.log("Program stopped by user. Saving recording...");
+        
+        // Unregister from the keyboard input system
+        controller.remove_keyboard_callback(static_cast<KeyboardEventCallback*>(this));
+        
         stop_recording();
         save_recording();
-        env.console.log("Recording stopped and saved.");
+        env.console.log("Recording saved successfully.");
+        throw; // Re-throw to let the framework handle it
+    } catch (...) {
+        // Any other exception - still try to save
+        if (m_is_recording) {
+            env.console.log("Program stopped due to error. Attempting to save recording...");
+            
+            // Unregister from the keyboard input system
+            controller.remove_keyboard_callback(static_cast<KeyboardEventCallback*>(this));
+            
+            stop_recording();
+            save_recording();
+        }
+        throw; // Re-throw the original exception
     }
-    
-    env.console.log("Keyboard Macro Start finished.");
 }
 
 void KeyboardMacroRecorder::start_recording(){
@@ -166,6 +203,10 @@ void KeyboardMacroRecorder::stop_recording(){
     }
     m_pressed_keys.clear();
 }
+
+
+
+
 
 void KeyboardMacroRecorder::save_recording(){
     if (m_recorded_events.empty()){
@@ -205,6 +246,9 @@ void KeyboardMacroRecorder::on_key_press(const QKeyEvent& event){
     
     m_recorded_events.push_back(press_event);
     m_pressed_keys[key] = press_event.timestamp;
+    
+    // Log the key press for debugging
+    std::cout << "Key pressed: " << get_key_name(key) << " -> " << action_to_string(press_event.action) << std::endl;
 }
 
 void KeyboardMacroRecorder::on_key_release(const QKeyEvent& event){
@@ -226,6 +270,9 @@ void KeyboardMacroRecorder::on_key_release(const QKeyEvent& event){
     
     m_recorded_events.push_back(release_event);
     m_pressed_keys.erase(key);
+    
+    // Log the key release for debugging
+    std::cout << "Key released: " << get_key_name(key) << " -> " << action_to_string(release_event.action) << std::endl;
 }
 
 TurboMacroAction KeyboardMacroRecorder::key_to_action(Qt::Key key){
@@ -377,6 +424,32 @@ JsonValue KeyboardMacroRecorder::create_macro_json(){
 std::string KeyboardMacroRecorder::get_key_name(Qt::Key key){
     QKeySequence seq(key);
     return seq.toString().toStdString();
+}
+
+std::string KeyboardMacroRecorder::action_to_string(TurboMacroAction action){
+    switch (action){
+    case TurboMacroAction::NO_ACTION: return "No Action";
+    case TurboMacroAction::LEFT_JOYSTICK: return "Left Joystick";
+    case TurboMacroAction::RIGHT_JOYSTICK: return "Right Joystick";
+    case TurboMacroAction::LEFT_JOY_CLICK: return "Left Joy Click";
+    case TurboMacroAction::RIGHT_JOY_CLICK: return "Right Joy Click";
+    case TurboMacroAction::B: return "B";
+    case TurboMacroAction::A: return "A";
+    case TurboMacroAction::Y: return "Y";
+    case TurboMacroAction::X: return "X";
+    case TurboMacroAction::R: return "R";
+    case TurboMacroAction::L: return "L";
+    case TurboMacroAction::ZR: return "ZR";
+    case TurboMacroAction::ZL: return "ZL";
+    case TurboMacroAction::PLUS: return "PLUS";
+    case TurboMacroAction::MINUS: return "MINUS";
+    case TurboMacroAction::DPADLEFT: return "DPad Left";
+    case TurboMacroAction::DPADRIGHT: return "DPad Right";
+    case TurboMacroAction::DPADUP: return "DPad Up";
+    case TurboMacroAction::DPADDOWN: return "DPad Down";
+    case TurboMacroAction::WAIT: return "Wait";
+    default: return "Unknown";
+    }
 }
 
 }

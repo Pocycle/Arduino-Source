@@ -15,6 +15,7 @@
 #include "Common/Cpp/Json/JsonValue.h"
 #include "Common/Cpp/Json/JsonArray.h"
 #include "Common/Cpp/Json/JsonObject.h"
+#include "Controllers/KeyboardInput/KeyboardInput.h"
 #include <QKeyEvent>
 #include <vector>
 #include <map>
@@ -41,11 +42,16 @@ public:
     KeyboardMacroRecorder_Descriptor();
 };
 
-class KeyboardMacroRecorder : public SingleSwitchProgramInstance{
+class KeyboardMacroRecorder : public SingleSwitchProgramInstance, public KeyboardEventCallback{
 public:
     KeyboardMacroRecorder();
+    virtual ~KeyboardMacroRecorder();
 
     virtual void program(SingleSwitchProgramEnvironment& env, ProControllerContext& context) override;
+    
+    // KeyboardEventCallback interface
+    virtual void on_key_press(const QKeyEvent& event) override;
+    virtual void on_key_release(const QKeyEvent& event) override;
 
 private:
     void initialize_keyboard_mapping();
@@ -53,12 +59,11 @@ private:
     void stop_recording();
     void save_recording();
     void save_macro_to_json();
-    void on_key_press(const QKeyEvent& event);
-    void on_key_release(const QKeyEvent& event);
     TurboMacroAction key_to_action(Qt::Key key);
     void get_joystick_values(Qt::Key key, uint8_t& x, uint8_t& y);
     JsonValue create_macro_json();
     std::string get_key_name(Qt::Key key);
+    std::string action_to_string(TurboMacroAction action);
 
 private:
     StringOption OUTPUT_FILENAME;

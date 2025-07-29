@@ -4,6 +4,7 @@
  *
  */
 
+#include <algorithm>
 #include "Common/Cpp/Exceptions.h"
 #include "Common/Cpp/PanicDump.h"
 #include "CommonFramework/GlobalSettingsPanel.h"
@@ -51,6 +52,19 @@ void KeyboardInputController::clear_state(){
     std::lock_guard<std::mutex> lg(m_sleep_lock);
     m_cv.notify_all();
 }
+
+void KeyboardInputController::add_keyboard_callback(PokemonAutomation::KeyboardEventCallback* callback){
+    std::lock_guard<std::mutex> lg(m_callback_lock);
+    m_keyboard_callbacks.push_back(callback);
+}
+
+void KeyboardInputController::remove_keyboard_callback(PokemonAutomation::KeyboardEventCallback* callback){
+    std::lock_guard<std::mutex> lg(m_callback_lock);
+    auto it = std::find(m_keyboard_callbacks.begin(), m_keyboard_callbacks.end(), callback);
+    if (it != m_keyboard_callbacks.end()){
+        m_keyboard_callbacks.erase(it);
+    }
+}
 void KeyboardInputController::on_key_press(const QKeyEvent& key){
 //    cout << "press: " << key.key() << ", native = " << key.nativeVirtualKey() << endl;
 
@@ -63,6 +77,14 @@ void KeyboardInputController::on_key_press(const QKeyEvent& key){
         m_state_tracker.press(key.nativeVirtualKey());
     }
 
+    // Notify keyboard event callbacks
+    {
+        std::lock_guard<std::mutex> lg(m_callback_lock);
+        for (PokemonAutomation::KeyboardEventCallback* callback : m_keyboard_callbacks){
+            callback->on_key_press(key);
+        }
+    }
+
     std::lock_guard<std::mutex> lg(m_sleep_lock);
     m_cv.notify_all();
 }
@@ -72,6 +94,14 @@ void KeyboardInputController::on_key_release(const QKeyEvent& key){
     {
         WriteSpinLock lg(m_state_lock);
         m_state_tracker.release(key.nativeVirtualKey());
+    }
+
+    // Notify keyboard event callbacks
+    {
+        std::lock_guard<std::mutex> lg(m_callback_lock);
+        for (PokemonAutomation::KeyboardEventCallback* callback : m_keyboard_callbacks){
+            callback->on_key_release(key);
+        }
     }
 
     std::lock_guard<std::mutex> lg(m_sleep_lock);
