@@ -51,29 +51,19 @@ KeyboardMacroRecorder::KeyboardMacroRecorder()
         0ms, Milliseconds::max(),
         "50 ms"
     )
-    , CURRENTLY_RECORDING(
-          "<b>Is Recording in progress:</b><br>Do not modify manually, Indicates when recording is currently in progress ",
-          LockMode::READ_ONLY,
-          false
-          )
     , m_is_recording(false)
     , m_first_run(true)
 {
     PA_ADD_OPTION(OUTPUT_FILENAME);
     PA_ADD_OPTION(DEFAULT_HOLD_TIME);
     PA_ADD_OPTION(DEFAULT_RELEASE_TIME);
-    PA_ADD_OPTION(CURRENTLY_RECORDING);
-    CURRENTLY_RECORDING = false;
     // Initialize keyboard mapping based on default Pro Controller mappings
     initialize_keyboard_mapping();
 }
 
 KeyboardMacroRecorder::~KeyboardMacroRecorder(){
-    // Ensure recording is stopped and saved when the program is destroyed
-    if (m_is_recording){
-        stop_recording();
-        save_recording();
-    }
+    // Note: Cleanup is handled in the program method when ProgramCancelledException is caught
+    // This ensures the recording is saved immediately when the user clicks "Stop Program"
 }
 
 void KeyboardMacroRecorder::initialize_keyboard_mapping(){
@@ -134,7 +124,6 @@ void KeyboardMacroRecorder::program(SingleSwitchProgramEnvironment& env, ProCont
     // Start recording immediately
     env.console.log("Starting recording...");
     start_recording();
-    CURRENTLY_RECORDING = true;
     
     // Register with the keyboard input system
     ProController& controller = static_cast<ProController&>(context.controller());
@@ -163,18 +152,6 @@ void KeyboardMacroRecorder::program(SingleSwitchProgramEnvironment& env, ProCont
         save_recording();
         env.console.log("Recording saved successfully.");
         throw; // Re-throw to let the framework handle it
-    } catch (...) {
-        // Any other exception - still try to save
-        if (m_is_recording) {
-            env.console.log("Program stopped due to error. Attempting to save recording...");
-            
-            // Unregister from the keyboard input system
-            controller.remove_keyboard_callback(static_cast<KeyboardEventCallback*>(this));
-            
-            stop_recording();
-            save_recording();
-        }
-        throw; // Re-throw the original exception
     }
 }
 
@@ -188,18 +165,32 @@ void KeyboardMacroRecorder::start_recording(){
 void KeyboardMacroRecorder::stop_recording(){
     m_is_recording = false;
     
-    // Release any still-pressed keys
+    // Release any still-pressed keys with proper timing
+    WallClock stop_time = current_time();
     for (const auto& pair : m_pressed_keys){
-        RecordedEvent event;
-        event.timestamp = current_time();
-        event.key = pair.first;
-        event.is_press = false;
-        event.action = key_to_action(pair.first);
-        event.hold_time = std::chrono::duration_cast<Milliseconds>(DEFAULT_HOLD_TIME.get());
-        event.release_time = std::chrono::duration_cast<Milliseconds>(DEFAULT_RELEASE_TIME.get());
-        get_joystick_values(pair.first, event.x_axis, event.y_axis);
+        Qt::Key key = pair.first;
+        WallClock press_time = pair.second;
+        Milliseconds actual_hold_time = std::chrono::duration_cast<Milliseconds>(stop_time - press_time);
         
-        m_recorded_events.push_back(event);
+        // Update the hold time in the existing press event
+        for (auto& recorded_event : m_recorded_events) {
+            if (recorded_event.key == key && recorded_event.is_press && recorded_event.timestamp == press_time) {
+                recorded_event.hold_time = actual_hold_time;
+                break;
+            }
+        }
+        
+        // Add a release event
+        RecordedEvent release_event;
+        release_event.timestamp = stop_time;
+        release_event.key = key;
+        release_event.is_press = false;
+        release_event.action = key_to_action(key);
+        release_event.hold_time = Milliseconds::zero();
+        release_event.release_time = Milliseconds::zero();
+        get_joystick_values(key, release_event.x_axis, release_event.y_axis);
+        
+        m_recorded_events.push_back(release_event);
     }
     m_pressed_keys.clear();
 }
@@ -258,14 +249,30 @@ void KeyboardMacroRecorder::on_key_release(const QKeyEvent& event){
     
     Qt::Key key = (Qt::Key)event.key();
     
-    // Record the key release
+    // Find the corresponding press event and update its hold time
+    auto press_it = m_pressed_keys.find(key);
+    if (press_it != m_pressed_keys.end()) {
+        WallClock press_time = press_it->second;
+        WallClock release_time = current_time();
+        Milliseconds actual_hold_time = std::chrono::duration_cast<Milliseconds>(release_time - press_time);
+        
+        // Update the hold time in the press event
+        for (auto& recorded_event : m_recorded_events) {
+            if (recorded_event.key == key && recorded_event.is_press && recorded_event.timestamp == press_time) {
+                recorded_event.hold_time = actual_hold_time;
+                break;
+            }
+        }
+    }
+    
+    // Record the key release (but don't add timing info to release events)
     RecordedEvent release_event;
     release_event.timestamp = current_time();
     release_event.key = key;
     release_event.is_press = false;
     release_event.action = key_to_action(key);
-    release_event.hold_time = std::chrono::duration_cast<Milliseconds>(DEFAULT_HOLD_TIME.get());
-    release_event.release_time = std::chrono::duration_cast<Milliseconds>(DEFAULT_RELEASE_TIME.get());
+    release_event.hold_time = Milliseconds::zero(); // No timing for release events
+    release_event.release_time = Milliseconds::zero(); // No timing for release events
     get_joystick_values(key, release_event.x_axis, release_event.y_axis);
     
     m_recorded_events.push_back(release_event);
@@ -338,8 +345,27 @@ void KeyboardMacroRecorder::save_macro_to_json(){
 JsonValue KeyboardMacroRecorder::create_macro_json(){
     JsonArray macro_array;
     
+    WallClock last_action_time = m_recording_start_time;
+    const Milliseconds MIN_WAIT_TIME = 50ms; // Minimum gap to consider as a wait
+    
     for (const RecordedEvent& event : m_recorded_events){
         if (event.action == TurboMacroAction::NO_ACTION){
+            continue;
+        }
+        
+        // Check if we need to add a wait action
+        if (event.timestamp > last_action_time) {
+            Milliseconds gap = std::chrono::duration_cast<Milliseconds>(event.timestamp - last_action_time);
+            if (gap >= MIN_WAIT_TIME) {
+                JsonObject wait_obj;
+                wait_obj["Action"] = "wait";
+                wait_obj["WaitMs"] = gap.count();
+                macro_array.push_back(JsonValue(std::move(wait_obj)));
+            }
+        }
+        
+        // Only process press events for actions (skip release events)
+        if (!event.is_press) {
             continue;
         }
         
@@ -409,13 +435,16 @@ JsonValue KeyboardMacroRecorder::create_macro_json(){
             continue;
         }
         
-        // Set timing parameters
-        if (event.is_press){
+        // Set timing parameters only for press events
+        if (event.hold_time > Milliseconds::zero()) {
             action_obj["HoldMs"] = event.hold_time.count();
+        }
+        if (event.release_time > Milliseconds::zero()) {
             action_obj["ReleaseMs"] = event.release_time.count();
         }
         
         macro_array.push_back(JsonValue(std::move(action_obj)));
+        last_action_time = event.timestamp;
     }
     
     return macro_array;
