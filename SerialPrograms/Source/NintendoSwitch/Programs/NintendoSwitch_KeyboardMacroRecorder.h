@@ -67,13 +67,13 @@ private:
 
 private:
     StringOption OUTPUT_FILENAME;
-    MillisecondsOption DEFAULT_HOLD_TIME;
-    MillisecondsOption DEFAULT_RELEASE_TIME;
     
     std::vector<RecordedEvent> m_recorded_events;
     std::map<Qt::Key, WallClock> m_pressed_keys;
+    std::map<Qt::Key, WallClock> m_last_release_times; // Track last release time for each key
     bool m_is_recording;
     WallClock m_recording_start_time;
+    WallClock m_recording_stop_time;
     bool m_first_run;
     
     // Keyboard mapping for conversion

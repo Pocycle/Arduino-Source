@@ -39,24 +39,10 @@ KeyboardMacroRecorder::KeyboardMacroRecorder()
         "recorded_macro.json",
         ""
     )
-    , DEFAULT_HOLD_TIME(
-        "<b>Default Hold Time:</b><br>Default time to hold buttons when recording.",
-        LockMode::UNLOCK_WHILE_RUNNING,
-        0ms, Milliseconds::max(),
-        "100 ms"
-    )
-    , DEFAULT_RELEASE_TIME(
-        "<b>Default Release Time:</b><br>Default time between button presses.",
-        LockMode::UNLOCK_WHILE_RUNNING,
-        0ms, Milliseconds::max(),
-        "50 ms"
-    )
     , m_is_recording(false)
     , m_first_run(true)
 {
     PA_ADD_OPTION(OUTPUT_FILENAME);
-    PA_ADD_OPTION(DEFAULT_HOLD_TIME);
-    PA_ADD_OPTION(DEFAULT_RELEASE_TIME);
     // Initialize keyboard mapping based on default Pro Controller mappings
     initialize_keyboard_mapping();
 }
@@ -160,13 +146,15 @@ void KeyboardMacroRecorder::start_recording(){
     m_recording_start_time = current_time();
     m_recorded_events.clear();
     m_pressed_keys.clear();
+    m_last_release_times.clear();
 }
 
 void KeyboardMacroRecorder::stop_recording(){
     m_is_recording = false;
+    m_recording_stop_time = current_time(); // Store the recording stop time
     
     // Release any still-pressed keys with proper timing
-    WallClock stop_time = current_time();
+    WallClock stop_time = m_recording_stop_time;
     for (const auto& pair : m_pressed_keys){
         Qt::Key key = pair.first;
         WallClock press_time = pair.second;
@@ -225,14 +213,31 @@ void KeyboardMacroRecorder::on_key_press(const QKeyEvent& event){
     
     Qt::Key key = (Qt::Key)event.key();
     
+    // Check if this key is already pressed - if so, ignore the duplicate press
+    if (m_pressed_keys.find(key) != m_pressed_keys.end()) {
+        std::cout << "Ignoring duplicate press for key: " << get_key_name(key) << std::endl;
+        return;
+    }
+    
+    // Check if this is a rapid repeat event (less than 200ms since last release of same key)
+    WallClock now = current_time();
+    auto last_release_it = m_last_release_times.find(key);
+    if (last_release_it != m_last_release_times.end()) {
+        Milliseconds time_since_release = std::chrono::duration_cast<Milliseconds>(now - last_release_it->second);
+        if (time_since_release < 200ms) {
+            std::cout << "Ignoring rapid repeat press for key: " << get_key_name(key) << " (time since release: " << time_since_release.count() << "ms)" << std::endl;
+            return;
+        }
+    }
+    
     // Record the key press
     RecordedEvent press_event;
-    press_event.timestamp = current_time();
+    press_event.timestamp = now;
     press_event.key = key;
     press_event.is_press = true;
     press_event.action = key_to_action(key);
-    press_event.hold_time = std::chrono::duration_cast<Milliseconds>(DEFAULT_HOLD_TIME.get());
-    press_event.release_time = std::chrono::duration_cast<Milliseconds>(DEFAULT_RELEASE_TIME.get());
+    press_event.hold_time = Milliseconds::zero(); // Will be updated on release
+    press_event.release_time = Milliseconds::zero(); // Not used for press events
     get_joystick_values(key, press_event.x_axis, press_event.y_axis);
     
     m_recorded_events.push_back(press_event);
@@ -249,25 +254,29 @@ void KeyboardMacroRecorder::on_key_release(const QKeyEvent& event){
     
     Qt::Key key = (Qt::Key)event.key();
     
-    // Find the corresponding press event and update its hold time
+    // Check if this key was actually pressed - if not, ignore the release
     auto press_it = m_pressed_keys.find(key);
-    if (press_it != m_pressed_keys.end()) {
-        WallClock press_time = press_it->second;
-        WallClock release_time = current_time();
-        Milliseconds actual_hold_time = std::chrono::duration_cast<Milliseconds>(release_time - press_time);
-        
-        // Update the hold time in the press event
-        for (auto& recorded_event : m_recorded_events) {
-            if (recorded_event.key == key && recorded_event.is_press && recorded_event.timestamp == press_time) {
-                recorded_event.hold_time = actual_hold_time;
-                break;
-            }
+    if (press_it == m_pressed_keys.end()) {
+        std::cout << "Ignoring release for unpressed key: " << get_key_name(key) << std::endl;
+        return;
+    }
+    
+    // Find the corresponding press event and update its hold time
+    WallClock press_time = press_it->second;
+    WallClock release_time = current_time();
+    Milliseconds actual_hold_time = std::chrono::duration_cast<Milliseconds>(release_time - press_time);
+    
+    // Update the hold time in the press event
+    for (auto& recorded_event : m_recorded_events) {
+        if (recorded_event.key == key && recorded_event.is_press && recorded_event.timestamp == press_time) {
+            recorded_event.hold_time = actual_hold_time;
+            break;
         }
     }
     
     // Record the key release (but don't add timing info to release events)
     RecordedEvent release_event;
-    release_event.timestamp = current_time();
+    release_event.timestamp = release_time;
     release_event.key = key;
     release_event.is_press = false;
     release_event.action = key_to_action(key);
@@ -277,9 +286,10 @@ void KeyboardMacroRecorder::on_key_release(const QKeyEvent& event){
     
     m_recorded_events.push_back(release_event);
     m_pressed_keys.erase(key);
+    m_last_release_times[key] = release_time; // Update the last release time for this key
     
     // Log the key release for debugging
-    std::cout << "Key released: " << get_key_name(key) << " -> " << action_to_string(release_event.action) << std::endl;
+    std::cout << "Key released: " << get_key_name(key) << " -> " << action_to_string(release_event.action) << " (held for " << actual_hold_time.count() << "ms)" << std::endl;
 }
 
 TurboMacroAction KeyboardMacroRecorder::key_to_action(Qt::Key key){
@@ -344,29 +354,69 @@ void KeyboardMacroRecorder::save_macro_to_json(){
 
 JsonValue KeyboardMacroRecorder::create_macro_json(){
     JsonArray macro_array;
+    WallClock last_action_end_time = WallClock::min(); // Track the end time of the last action
+    const Milliseconds MIN_WAIT_TIME = 50ms;
+    const Milliseconds MAX_GAP_FOR_COMBINE = 250ms; // Maximum gap to combine consecutive actions
+    Milliseconds accumulated_wait = Milliseconds::zero();
+    bool first_action = true;
     
-    WallClock last_action_time = m_recording_start_time;
-    const Milliseconds MIN_WAIT_TIME = 50ms; // Minimum gap to consider as a wait
+    // First pass: collect all actions and combine consecutive ones
+    std::vector<RecordedEvent> combined_events;
     
     for (const RecordedEvent& event : m_recorded_events){
         if (event.action == TurboMacroAction::NO_ACTION){
             continue;
         }
         
-        // Check if we need to add a wait action
-        if (event.timestamp > last_action_time) {
-            Milliseconds gap = std::chrono::duration_cast<Milliseconds>(event.timestamp - last_action_time);
-            if (gap >= MIN_WAIT_TIME) {
-                JsonObject wait_obj;
-                wait_obj["Action"] = "wait";
-                wait_obj["WaitMs"] = gap.count();
-                macro_array.push_back(JsonValue(std::move(wait_obj)));
-            }
-        }
-        
         // Only process press events for actions (skip release events)
         if (!event.is_press) {
             continue;
+        }
+        
+        // Try to combine with the previous action if it's the same type and close in time
+        if (!combined_events.empty()) {
+            const RecordedEvent& prev_event = combined_events.back();
+            if (prev_event.action == event.action) {
+                // Calculate gap between end of previous action and start of current action
+                WallClock prev_end = prev_event.timestamp + prev_event.hold_time;
+                Milliseconds gap = std::chrono::duration_cast<Milliseconds>(event.timestamp - prev_end);
+                
+                std::cout << "Checking combination: " << action_to_string(event.action) << " (gap: " << gap.count() << "ms, max: " << MAX_GAP_FOR_COMBINE.count() << "ms)" << std::endl;
+                
+                if (gap <= MAX_GAP_FOR_COMBINE) {
+                    // Combine the actions
+                    std::cout << "Combining consecutive " << action_to_string(event.action) << " actions (gap: " << gap.count() << "ms)" << std::endl;
+                    
+                    // Update the previous event to extend its duration
+                    combined_events.back().hold_time += gap + event.hold_time;
+                    continue; // Skip adding this as a separate event
+                }
+            }
+        }
+        
+        std::cout << "Adding new action: " << action_to_string(event.action) << " (hold time: " << event.hold_time.count() << "ms)" << std::endl;
+        
+        // Add as a new event
+        combined_events.push_back(event);
+    }
+    
+    // Second pass: create the JSON with proper wait times
+    for (const RecordedEvent& event : combined_events){
+        // Check if we need to add a wait action (skip for first action to avoid initial wait)
+        if (!first_action && event.timestamp > last_action_end_time) {
+            Milliseconds gap = std::chrono::duration_cast<Milliseconds>(event.timestamp - last_action_end_time);
+            if (gap >= MIN_WAIT_TIME) {
+                accumulated_wait += gap;
+            }
+        }
+        
+        // Add accumulated wait as a single wait action before this action (but not before the first action)
+        if (!first_action && accumulated_wait > Milliseconds::zero()) {
+            JsonObject wait_obj;
+            wait_obj["Action"] = "wait";
+            wait_obj["WaitMs"] = accumulated_wait.count();
+            macro_array.push_back(JsonValue(std::move(wait_obj)));
+            accumulated_wait = Milliseconds::zero();
         }
         
         JsonObject action_obj;
@@ -444,7 +494,41 @@ JsonValue KeyboardMacroRecorder::create_macro_json(){
         }
         
         macro_array.push_back(JsonValue(std::move(action_obj)));
-        last_action_time = event.timestamp;
+        
+        // Calculate the end time of this action (start time + hold time)
+        last_action_end_time = event.timestamp + event.hold_time;
+        first_action = false; // Set to false after the first action
+    }
+    
+    // Add final wait if there's accumulated wait time
+    if (accumulated_wait > Milliseconds::zero()) {
+        JsonObject wait_obj;
+        wait_obj["Action"] = "wait";
+        wait_obj["WaitMs"] = accumulated_wait.count();
+        macro_array.push_back(JsonValue(std::move(wait_obj)));
+    }
+    
+    // Add final wait if there's time remaining after the last action
+    if (!combined_events.empty()) {
+        const RecordedEvent& last_event = combined_events.back();
+        // Calculate time from end of last action to end of recording
+        WallClock last_action_end = last_event.timestamp + last_event.hold_time;
+        WallClock recording_end = m_recording_stop_time; // Use the actual recording stop time
+        Milliseconds final_wait = std::chrono::duration_cast<Milliseconds>(recording_end - last_action_end);
+        
+        std::cout << "Final wait calculation: last_action_end=" << last_action_end.time_since_epoch().count() 
+                  << ", recording_end=" << recording_end.time_since_epoch().count() 
+                  << ", final_wait=" << final_wait.count() << "ms, min_wait=" << MIN_WAIT_TIME.count() << "ms" << std::endl;
+        
+        if (final_wait >= MIN_WAIT_TIME) {
+            JsonObject wait_obj;
+            wait_obj["Action"] = "wait";
+            wait_obj["WaitMs"] = final_wait.count();
+            macro_array.push_back(JsonValue(std::move(wait_obj)));
+            std::cout << "Added final wait: " << final_wait.count() << "ms" << std::endl;
+        } else {
+            std::cout << "Final wait too short, not adding" << std::endl;
+        }
     }
     
     return macro_array;
