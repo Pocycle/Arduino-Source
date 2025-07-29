@@ -12,7 +12,6 @@
 #include "Common/Cpp/Options/StringOption.h"
 #include "Common/Cpp/Options/BooleanCheckBoxOption.h"
 #include "Common/Cpp/Options/TimeDurationOption.h"
-#include "Common/Qt/Options/ConfigWidget.h"
 #include "Common/Cpp/Json/JsonValue.h"
 #include "Common/Cpp/Json/JsonArray.h"
 #include "Common/Cpp/Json/JsonObject.h"
@@ -20,17 +19,11 @@
 #include <vector>
 #include <map>
 #include <chrono>
-#include <QWidget>
-#include <QHBoxLayout>
-#include <QPushButton>
 
 namespace PokemonAutomation{
 namespace NintendoSwitch{
 
 using namespace std::chrono_literals;
-
-// Forward declaration
-class KeyboardMacroRecorder;
 
 struct RecordedEvent{
     WallClock timestamp;
@@ -53,13 +46,12 @@ public:
     KeyboardMacroRecorder();
 
     virtual void program(SingleSwitchProgramEnvironment& env, ProControllerContext& context) override;
-    void start_recording();
-    void stop_recording();
-    void save_macro_to_json();
-    void clear_recording_data();
 
 private:
     void initialize_keyboard_mapping();
+    void start_recording();
+    void stop_recording();
+    void save_macro_to_json();
     void on_key_press(const QKeyEvent& event);
     void on_key_release(const QKeyEvent& event);
     TurboMacroAction key_to_action(Qt::Key key);
@@ -68,22 +60,19 @@ private:
     std::string get_key_name(Qt::Key key);
 
 private:
+    BooleanCheckBoxOption RECORDING_ENABLED;
     StringOption OUTPUT_FILENAME;
     MillisecondsOption DEFAULT_HOLD_TIME;
     MillisecondsOption DEFAULT_RELEASE_TIME;
     
-    // Recording control
-    BooleanCheckBoxOption RECORDING_ENABLED;
+    std::vector<RecordedEvent> m_recorded_events;
+    std::map<Qt::Key, WallClock> m_pressed_keys;
+    bool m_is_recording;
+    WallClock m_recording_start_time;
     
     // Keyboard mapping for conversion
     std::map<Qt::Key, TurboMacroAction> m_key_to_action_map;
     std::map<Qt::Key, std::pair<uint8_t, uint8_t>> m_key_to_joystick_map;
-    
-    // Recording state
-    bool m_is_recording;
-    WallClock m_recording_start_time;
-    std::vector<RecordedEvent> m_recorded_events;
-    std::map<Qt::Key, WallClock> m_pressed_keys;
 };
 
 }
