@@ -30,12 +30,7 @@ KeyboardMacroRecorder_Descriptor::KeyboardMacroRecorder_Descriptor()
 {}
 
 KeyboardMacroRecorder::KeyboardMacroRecorder()
-    : RECORDING_ENABLED(
-        "<b>Enable Recording:</b><br>Check this to start recording keyboard input.",
-        LockMode::UNLOCK_WHILE_RUNNING,
-        false
-    )
-    , OUTPUT_FILENAME(
+    : OUTPUT_FILENAME(
         false,
         "<b>Output Filename:</b><br>Name of the JSON file to save the recorded macro.",
         LockMode::UNLOCK_WHILE_RUNNING,
@@ -54,13 +49,19 @@ KeyboardMacroRecorder::KeyboardMacroRecorder()
         0ms, Milliseconds::max(),
         "50 ms"
     )
+    , CURRENTLY_RECORDING(
+          "<b>Is Recording in progress:</b><br>Do not modify manually, Indicates when recording is currently in progress ",
+          LockMode::READ_ONLY,
+          false
+          )
     , m_is_recording(false)
+    , m_first_run(true)
 {
-    PA_ADD_OPTION(RECORDING_ENABLED);
     PA_ADD_OPTION(OUTPUT_FILENAME);
     PA_ADD_OPTION(DEFAULT_HOLD_TIME);
     PA_ADD_OPTION(DEFAULT_RELEASE_TIME);
-    
+    PA_ADD_OPTION(CURRENTLY_RECORDING);
+    CURRENTLY_RECORDING = false;
     // Initialize keyboard mapping based on default Pro Controller mappings
     initialize_keyboard_mapping();
 }
@@ -112,84 +113,85 @@ void KeyboardMacroRecorder::initialize_keyboard_mapping(){
 }
 
 void KeyboardMacroRecorder::program(SingleSwitchProgramEnvironment& env, ProControllerContext& context){
-    env.console.log("Keyboard Macro Recorder started.");
-    env.console.log("This program records keyboard input and converts it to TurboMacro JSON format.");
-    env.console.log("Toggle the 'Recording Enabled' checkbox to start/stop recording.");
-    
-    // Create a simple demo macro since we can't easily connect to the keyboard input system
-    env.console.log("Creating a demo macro with sample button presses...");
-    
-    // Debug: Show the time values
-    auto hold_time_ms = DEFAULT_HOLD_TIME.get();
-    auto release_time_ms = DEFAULT_RELEASE_TIME.get();
-    
-    env.console.log("Hold time: " + std::to_string(hold_time_ms.count()) + " ms");
-    env.console.log("Release time: " + std::to_string(release_time_ms.count()) + " ms");
-    
-    // Add some sample events to demonstrate the format
-    RecordedEvent event1;
-    event1.timestamp = current_time();
-    event1.key = Qt::Key_Enter;
-    event1.is_press = true;
-    event1.action = TurboMacroAction::A;
-    event1.hold_time = hold_time_ms;
-    event1.release_time = release_time_ms;
-    get_joystick_values(Qt::Key_Enter, event1.x_axis, event1.y_axis);
-    m_recorded_events.push_back(event1);
-    
-    // Add a release event
-    RecordedEvent event1_release;
-    event1_release.timestamp = current_time() + std::chrono::milliseconds(100);
-    event1_release.key = Qt::Key_Enter;
-    event1_release.is_press = false;
-    event1_release.action = TurboMacroAction::A;
-    event1_release.hold_time = hold_time_ms;
-    event1_release.release_time = release_time_ms;
-    get_joystick_values(Qt::Key_Enter, event1_release.x_axis, event1_release.y_axis);
-    m_recorded_events.push_back(event1_release);
-    
-    // Add a joystick movement event
-    RecordedEvent event2;
-    event2.timestamp = current_time() + std::chrono::milliseconds(200);
-    event2.key = Qt::Key_W;
-    event2.is_press = true;
-    event2.action = TurboMacroAction::LEFT_JOYSTICK;
-    event2.hold_time = hold_time_ms;
-    event2.release_time = release_time_ms;
-    get_joystick_values(Qt::Key_W, event2.x_axis, event2.y_axis);
-    m_recorded_events.push_back(event2);
-    
-    // Add joystick release
-    RecordedEvent event2_release;
-    event2_release.timestamp = current_time() + std::chrono::milliseconds(300);
-    event2_release.key = Qt::Key_W;
-    event2_release.is_press = false;
-    event2_release.action = TurboMacroAction::LEFT_JOYSTICK;
-    event2_release.hold_time = hold_time_ms;
-    event2_release.release_time = release_time_ms;
-    get_joystick_values(Qt::Key_W, event2_release.x_axis, event2_release.y_axis);
-    m_recorded_events.push_back(event2_release);
-    
-    env.console.log("Generated demo macro with " + std::to_string(m_recorded_events.size()) + " events.");
-    
-    // Debug: Show the JSON that will be created
-    JsonValue macro_json = create_macro_json();
-    std::string json_string = macro_json.dump();
-    env.console.log("JSON content preview: " + json_string.substr(0, 200) + "...");
-    
-    // Save the macro to JSON
-    save_macro_to_json();
-    
-    // Get the full path for logging
-    std::string filename = std::string(OUTPUT_FILENAME);
-    if (filename.empty()){
-        filename = "recorded_macro.json";
+    if (m_first_run){
+        env.console.log("Keyboard Macro Recorder started.");
+        env.console.log("This program records keyboard input and converts it to TurboMacro JSON format.");
+        env.console.log("Click 'Start Program' to toggle recording on/off.");
+        m_first_run = false;
     }
-    std::filesystem::path current_path = std::filesystem::current_path();
-    std::filesystem::path full_path = current_path / filename;
     
-    env.console.log("Demo macro saved to: " + full_path.string());
-    env.console.log("You can use this as a template for creating your own macros.");
+    // Toggle the recording state
+    CURRENTLY_RECORDING = !CURRENTLY_RECORDING;
+    
+    // Check if we're starting recording
+    if (CURRENTLY_RECORDING){
+        env.console.log("Starting recording...");
+        start_recording();
+        env.console.log("Recording started. Press keys to record your macro.");
+        env.console.log("Click 'Start Program' again to stop recording and save.");
+        
+        // For now, we'll create a demo recording since we can't easily access the keyboard input
+        // In a real implementation, you would need to integrate with the keyboard input system
+        env.console.log("Creating demo recording (since keyboard input integration requires additional work)...");
+        
+        // Add some demo events to show the format
+        auto hold_time_ms = DEFAULT_HOLD_TIME.get();
+        auto release_time_ms = DEFAULT_RELEASE_TIME.get();
+        
+        // Demo: Press A button
+        RecordedEvent event1;
+        event1.timestamp = current_time();
+        event1.key = Qt::Key_Enter;
+        event1.is_press = true;
+        event1.action = TurboMacroAction::A;
+        event1.hold_time = hold_time_ms;
+        event1.release_time = release_time_ms;
+        get_joystick_values(Qt::Key_Enter, event1.x_axis, event1.y_axis);
+        m_recorded_events.push_back(event1);
+        
+        // Demo: Release A button
+        RecordedEvent event1_release;
+        event1_release.timestamp = current_time() + std::chrono::milliseconds(100);
+        event1_release.key = Qt::Key_Enter;
+        event1_release.is_press = false;
+        event1_release.action = TurboMacroAction::A;
+        event1_release.hold_time = hold_time_ms;
+        event1_release.release_time = release_time_ms;
+        get_joystick_values(Qt::Key_Enter, event1_release.x_axis, event1_release.y_axis);
+        m_recorded_events.push_back(event1_release);
+        
+        // Demo: Move joystick
+        RecordedEvent event2;
+        event2.timestamp = current_time() + std::chrono::milliseconds(200);
+        event2.key = Qt::Key_W;
+        event2.is_press = true;
+        event2.action = TurboMacroAction::LEFT_JOYSTICK;
+        event2.hold_time = hold_time_ms;
+        event2.release_time = release_time_ms;
+        get_joystick_values(Qt::Key_W, event2.x_axis, event2.y_axis);
+        m_recorded_events.push_back(event2);
+        
+        // Demo: Release joystick
+        RecordedEvent event2_release;
+        event2_release.timestamp = current_time() + std::chrono::milliseconds(300);
+        event2_release.key = Qt::Key_W;
+        event2_release.is_press = false;
+        event2_release.action = TurboMacroAction::LEFT_JOYSTICK;
+        event2_release.hold_time = hold_time_ms;
+        event2_release.release_time = release_time_ms;
+        get_joystick_values(Qt::Key_W, event2_release.x_axis, event2_release.y_axis);
+        m_recorded_events.push_back(event2_release);
+        
+        env.console.log("Demo recording created with " + std::to_string(m_recorded_events.size()) + " events.");
+    }
+    // Check if we're stopping recording
+    else{
+        env.console.log("Stopping recording...");
+        stop_recording();
+        save_recording();
+        env.console.log("Recording stopped and saved.");
+    }
+    
     env.console.log("Keyboard Macro Recorder finished.");
 }
 
@@ -217,6 +219,25 @@ void KeyboardMacroRecorder::stop_recording(){
         m_recorded_events.push_back(event);
     }
     m_pressed_keys.clear();
+}
+
+void KeyboardMacroRecorder::save_recording(){
+    if (m_recorded_events.empty()){
+        return;
+    }
+    
+    save_macro_to_json();
+    
+    // Get the full path for logging
+    std::string filename = std::string(OUTPUT_FILENAME);
+    if (filename.empty()){
+        filename = "recorded_macro.json";
+    }
+    std::filesystem::path current_path = std::filesystem::current_path();
+    std::filesystem::path full_path = current_path / filename;
+    
+    std::cout << "Macro saved to: " << full_path.string() << std::endl;
+    std::cout << "Recorded " << m_recorded_events.size() << " events." << std::endl;
 }
 
 void KeyboardMacroRecorder::on_key_press(const QKeyEvent& event){

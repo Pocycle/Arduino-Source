@@ -51,6 +51,7 @@ private:
     void initialize_keyboard_mapping();
     void start_recording();
     void stop_recording();
+    void save_recording();
     void save_macro_to_json();
     void on_key_press(const QKeyEvent& event);
     void on_key_release(const QKeyEvent& event);
@@ -60,15 +61,16 @@ private:
     std::string get_key_name(Qt::Key key);
 
 private:
-    BooleanCheckBoxOption RECORDING_ENABLED;
     StringOption OUTPUT_FILENAME;
     MillisecondsOption DEFAULT_HOLD_TIME;
     MillisecondsOption DEFAULT_RELEASE_TIME;
+    BooleanCheckBoxOption CURRENTLY_RECORDING;
     
     std::vector<RecordedEvent> m_recorded_events;
     std::map<Qt::Key, WallClock> m_pressed_keys;
     bool m_is_recording;
     WallClock m_recording_start_time;
+    bool m_first_run;
     
     // Keyboard mapping for conversion
     std::map<Qt::Key, TurboMacroAction> m_key_to_action_map;
