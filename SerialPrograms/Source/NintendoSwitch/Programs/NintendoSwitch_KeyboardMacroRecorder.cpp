@@ -402,21 +402,19 @@ JsonValue KeyboardMacroRecorder::create_macro_json(){
     
     // Second pass: create the JSON with proper wait times
     for (const RecordedEvent& event : combined_events){
-        // Check if we need to add a wait action (skip for first action to avoid initial wait)
+        // Calculate gap from end of previous action to start of current action
         if (!first_action && event.timestamp > last_action_end_time) {
             Milliseconds gap = std::chrono::duration_cast<Milliseconds>(event.timestamp - last_action_end_time);
             if (gap >= MIN_WAIT_TIME) {
-                accumulated_wait += gap;
+                // Store the gap to be used as ReleaseMs for the previous action
+                if (!macro_array.empty()) {
+                    // Update the previous action's ReleaseMs
+                    JsonObject* prev_action = macro_array[macro_array.size() - 1].to_object();
+                    if (prev_action) {
+                        (*prev_action)["ReleaseMs"] = std::to_string(gap.count()) + " ms";
+                    }
+                }
             }
-        }
-        
-        // Add accumulated wait as a single wait action before this action (but not before the first action)
-        if (!first_action && accumulated_wait > Milliseconds::zero()) {
-            JsonObject wait_obj;
-            wait_obj["Action"] = "wait";
-            wait_obj["WaitMs"] = accumulated_wait.count();
-            macro_array.push_back(JsonValue(std::move(wait_obj)));
-            accumulated_wait = Milliseconds::zero();
         }
         
         JsonObject action_obj;
@@ -487,11 +485,10 @@ JsonValue KeyboardMacroRecorder::create_macro_json(){
         
         // Set timing parameters only for press events
         if (event.hold_time > Milliseconds::zero()) {
-            action_obj["HoldMs"] = event.hold_time.count();
+            action_obj["HoldMs"] = std::to_string(event.hold_time.count()) + " ms";
         }
-        if (event.release_time > Milliseconds::zero()) {
-            action_obj["ReleaseMs"] = event.release_time.count();
-        }
+        // Set ReleaseMs to 0 ms by default (will be updated if there's a gap to next action)
+        action_obj["ReleaseMs"] = "0 ms";
         
         macro_array.push_back(JsonValue(std::move(action_obj)));
         
@@ -500,16 +497,8 @@ JsonValue KeyboardMacroRecorder::create_macro_json(){
         first_action = false; // Set to false after the first action
     }
     
-    // Add final wait if there's accumulated wait time
-    if (accumulated_wait > Milliseconds::zero()) {
-        JsonObject wait_obj;
-        wait_obj["Action"] = "wait";
-        wait_obj["WaitMs"] = accumulated_wait.count();
-        macro_array.push_back(JsonValue(std::move(wait_obj)));
-    }
-    
     // Add final wait if there's time remaining after the last action
-    if (!combined_events.empty()) {
+    if (!combined_events.empty() && !macro_array.empty()) {
         const RecordedEvent& last_event = combined_events.back();
         // Calculate time from end of last action to end of recording
         WallClock last_action_end = last_event.timestamp + last_event.hold_time;
@@ -521,11 +510,12 @@ JsonValue KeyboardMacroRecorder::create_macro_json(){
                   << ", final_wait=" << final_wait.count() << "ms, min_wait=" << MIN_WAIT_TIME.count() << "ms" << std::endl;
         
         if (final_wait >= MIN_WAIT_TIME) {
-            JsonObject wait_obj;
-            wait_obj["Action"] = "wait";
-            wait_obj["WaitMs"] = final_wait.count();
-            macro_array.push_back(JsonValue(std::move(wait_obj)));
-            std::cout << "Added final wait: " << final_wait.count() << "ms" << std::endl;
+            // Update the last action's ReleaseMs to include the final wait
+            JsonObject* last_action = macro_array[macro_array.size() - 1].to_object();
+            if (last_action) {
+                (*last_action)["ReleaseMs"] = std::to_string(final_wait.count()) + " ms";
+                std::cout << "Updated final action ReleaseMs: " << final_wait.count() << "ms" << std::endl;
+            }
         } else {
             std::cout << "Final wait too short, not adding" << std::endl;
         }
