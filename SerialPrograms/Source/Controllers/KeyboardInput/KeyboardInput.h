@@ -41,13 +41,7 @@ public:
 
 
 
-// Keyboard event callback interface
-class KeyboardEventCallback{
-public:
-    virtual ~KeyboardEventCallback() = default;
-    virtual void on_key_press(const QKeyEvent& event) = 0;
-    virtual void on_key_release(const QKeyEvent& event) = 0;
-};
+
 
 class KeyboardInputController{
 public:
@@ -60,10 +54,6 @@ public:
 
     void on_key_press(const QKeyEvent& key);
     void on_key_release(const QKeyEvent& key);
-    
-    // Add/remove keyboard event callbacks
-    void add_keyboard_callback(KeyboardEventCallback* callback);
-    void remove_keyboard_callback(KeyboardEventCallback* callback);
 
 
 protected:
@@ -92,10 +82,6 @@ private:
     std::mutex m_sleep_lock;
     std::condition_variable m_cv;
     std::thread m_thread;
-    
-    // Keyboard event callbacks
-    std::vector<PokemonAutomation::KeyboardEventCallback*> m_keyboard_callbacks;
-    std::mutex m_callback_lock;
 };
 
 

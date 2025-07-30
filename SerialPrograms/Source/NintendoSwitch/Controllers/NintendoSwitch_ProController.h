@@ -12,7 +12,7 @@
 #include "Common/Cpp/Containers/Pimpl.h"
 #include "NintendoSwitch_ControllerState.h"
 #include "Controllers/Controller.h"
-#include "Controllers/KeyboardInput/KeyboardInput.h"
+#include "Controllers/ControllerEventCallback.h"
 
 
 //#include <iostream>
@@ -217,9 +217,9 @@ public:
     virtual void keyboard_press(const QKeyEvent& event) override;
     virtual void keyboard_release(const QKeyEvent& event) override;
     
-    // Keyboard callback registration
-    void add_keyboard_callback(PokemonAutomation::KeyboardEventCallback* callback);
-    void remove_keyboard_callback(PokemonAutomation::KeyboardEventCallback* callback);
+    // Controller callback registration
+    void add_controller_callback(ControllerEventCallback* callback);
+    void remove_controller_callback(ControllerEventCallback* callback);
 
 
 private:

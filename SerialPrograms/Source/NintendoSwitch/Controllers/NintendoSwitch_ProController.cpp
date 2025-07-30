@@ -7,9 +7,10 @@
 #include "Common/Cpp/Containers/Pimpl.tpp"
 #include "CommonTools/Async/InterruptableCommands.tpp"
 #include "CommonTools/Async/SuperControlSession.tpp"
-#include "Controllers/KeyboardInput/KeyboardInput.h"
+#include "Controllers/ControllerEventCallback.h"
 #include "NintendoSwitch/NintendoSwitch_Settings.h"
 #include "NintendoSwitch_VirtualControllerState.h"
+#include "NintendoSwitch_ControllerWithScheduler.h"
 #include "NintendoSwitch_ProController.h"
 
 namespace PokemonAutomation{
@@ -100,12 +101,20 @@ void ProController::keyboard_release(const QKeyEvent& event){
     m_keyboard_manager->on_key_release(event);
 }
 
-void ProController::add_keyboard_callback(PokemonAutomation::KeyboardEventCallback* callback){
-    m_keyboard_manager->add_keyboard_callback(callback);
+void ProController::add_controller_callback(ControllerEventCallback* callback){
+    // The concrete ProController implementations inherit from both ProController and ControllerWithScheduler
+    // So we can use dynamic_cast to access the callback methods
+    if (auto* scheduler = dynamic_cast<ControllerWithScheduler*>(this)){
+        scheduler->add_controller_callback(callback);
+    }
 }
 
-void ProController::remove_keyboard_callback(PokemonAutomation::KeyboardEventCallback* callback){
-    m_keyboard_manager->remove_keyboard_callback(callback);
+void ProController::remove_controller_callback(ControllerEventCallback* callback){
+    // The concrete ProController implementations inherit from both ProController and ControllerWithScheduler
+    // So we can use dynamic_cast to access the callback methods
+    if (auto* scheduler = dynamic_cast<ControllerWithScheduler*>(this)){
+        scheduler->remove_controller_callback(callback);
+    }
 }
 
 

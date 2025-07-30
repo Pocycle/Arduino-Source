@@ -11,8 +11,10 @@
 #define PokemonAutomation_NintendoSwitch_ControllerWithScheduler_H
 
 #include <mutex>
+#include <vector>
 #include "Common/Cpp/RecursiveThrottler.h"
 #include "Controllers/SuperscalarScheduler.h"
+#include "Controllers/ControllerEventCallback.h"
 #include "NintendoSwitch_ControllerState.h"
 
 namespace PokemonAutomation{
@@ -125,6 +127,18 @@ public:
     RecursiveThrottler& logging_throttler(){
         return m_logging_throttler;
     }
+
+    // Controller event callback registration
+    void add_controller_callback(ControllerEventCallback* callback);
+    void remove_controller_callback(ControllerEventCallback* callback);
+
+    // Get current controller state for state change detection
+    void get_current_controller_state(
+        Button& button,
+        DpadPosition& position,
+        uint8_t& left_x, uint8_t& left_y,
+        uint8_t& right_x, uint8_t& right_y
+    ) const;
 
 
 public:
@@ -270,6 +284,10 @@ protected:
     //  This lock protects the state/fields of this class and subclasses.
     //  This lock is never held for a long time.
     std::mutex m_state_lock;
+    
+    // Controller event callbacks
+    std::vector<ControllerEventCallback*> m_controller_callbacks;
+    std::mutex m_callback_lock;
 };
 
 

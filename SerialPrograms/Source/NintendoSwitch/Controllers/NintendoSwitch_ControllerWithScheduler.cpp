@@ -8,6 +8,7 @@
  */
 
 #include "NintendoSwitch_ControllerWithScheduler.h"
+#include <algorithm>
 
 namespace PokemonAutomation{
 namespace NintendoSwitch{
@@ -25,6 +26,43 @@ ControllerWithScheduler::ControllerWithScheduler(Logger& logger)
     , m_logger(logger)
 //    , m_logging_suppress(0)
 {}
+
+void ControllerWithScheduler::add_controller_callback(ControllerEventCallback* callback){
+    std::lock_guard<std::mutex> lg(m_callback_lock);
+    m_controller_callbacks.push_back(callback);
+}
+
+void ControllerWithScheduler::remove_controller_callback(ControllerEventCallback* callback){
+    std::lock_guard<std::mutex> lg(m_callback_lock);
+    auto it = std::find(m_controller_callbacks.begin(), m_controller_callbacks.end(), callback);
+    if (it != m_controller_callbacks.end()){
+        m_controller_callbacks.erase(it);
+    }
+}
+
+void ControllerWithScheduler::get_current_controller_state(
+    Button& button,
+    DpadPosition& position,
+    uint8_t& left_x, uint8_t& left_y,
+    uint8_t& right_x, uint8_t& right_y
+) const{
+    // Get current button state by checking which buttons are busy
+    button = BUTTON_NONE;
+    for (size_t c = 0; c < TOTAL_BUTTONS; c++){
+        if (m_buttons[c].is_busy()){
+            button |= (Button)((ButtonFlagType)1 << c);
+        }
+    }
+    
+    // Get current dpad position
+    position = m_dpad.position;
+    
+    // Get current joystick positions
+    left_x = m_left_joystick.x;
+    left_y = m_left_joystick.y;
+    right_x = m_right_joystick.x;
+    right_y = m_right_joystick.y;
+}
 
 
 
@@ -212,6 +250,41 @@ void ControllerWithScheduler::issue_full_controller_state(
         cancellable->throw_if_cancelled();
     }
 
+    // Check if there are any callbacks to notify
+    bool has_callbacks = false;
+    {
+        std::lock_guard<std::mutex> lg(m_callback_lock);
+        has_callbacks = !m_controller_callbacks.empty();
+    }
+
+    // If there are callbacks, check for state changes
+    bool state_changed = false;
+    if (has_callbacks){
+        // Get current state
+        Button current_button;
+        DpadPosition current_position;
+        uint8_t current_left_x, current_left_y, current_right_x, current_right_y;
+        get_current_controller_state(current_button, current_position, current_left_x, current_left_y, current_right_x, current_right_y);
+        
+        // Check if state has changed
+        state_changed = (current_button != button) ||
+                       (current_position != position) ||
+                       (current_left_x != left_x) ||
+                       (current_left_y != left_y) ||
+                       (current_right_x != right_x) ||
+                       (current_right_y != right_y);
+        
+        // Notify controller event callbacks about command start if state changed
+        if (state_changed){
+            std::lock_guard<std::mutex> lg(m_callback_lock);
+            for (ControllerEventCallback* callback : m_controller_callbacks){
+                callback->on_controller_command_start(
+                    button, position, left_x, left_y, right_x, right_y, hold
+                );
+            }
+        }
+    }
+
     for (size_t c = 0; c < TOTAL_BUTTONS; c++){
         ButtonFlagType mask = (ButtonFlagType)1 << c;
         if (button & mask){
@@ -259,6 +332,16 @@ void ControllerWithScheduler::issue_full_controller_state(
             "), hold = " + std::to_string(hold.count()) + "ms",
             COLOR_DARKGREEN
         );
+    }
+
+    // Notify controller event callbacks about command end if state changed
+    if (state_changed){
+        std::lock_guard<std::mutex> lg(m_callback_lock);
+        for (ControllerEventCallback* callback : m_controller_callbacks){
+            callback->on_controller_command_end(
+                button, position, left_x, left_y, right_x, right_y
+            );
+        }
     }
 }
 
